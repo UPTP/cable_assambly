@@ -2,7 +2,7 @@
 ## Session 1: Introduction to Robotics and ABB Overview
 Objective: Build a basic understanding of industrial robots and ABB’s product line.
 - Overview of industrial robot applications
-- OmniCore controllers and flex pendent
+- OmniCore controllers and flex pendant
 - Overview of RobotStudio and RAPID programming language
 - Exercise: Log into RobotStudio and open a demo station
 
