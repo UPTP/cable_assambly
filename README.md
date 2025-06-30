@@ -1,1 +1,1 @@
-# We put the schedual at here
+#  the schedule goes here
