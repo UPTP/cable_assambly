@@ -12,4 +12,4 @@ Try to make a condition let the robot move several times.
 By using the environment last week.  
 Rapid overview : https://search.abb.com/library/Download.aspx?DocumentID=3HAC065040-001&LanguageCode=en&DocumentPartId=&Action=Launch  
 Rapid function : https://search.abb.com/library/Download.aspx?DocumentID=3HAC065038-001&LanguageCode=en&DocumentPartId=&Action=Launch  
-Today video : https://youtu.be/v-WTg0BGxcQ
+Today video : [https://youtu.be/v-WTg0BGxcQ](https://youtu.be/31qWdAxSHZU)
