@@ -13,3 +13,7 @@ By using the environment last week.
 Rapid overview : https://search.abb.com/library/Download.aspx?DocumentID=3HAC065040-001&LanguageCode=en&DocumentPartId=&Action=Launch  
 Rapid function : https://search.abb.com/library/Download.aspx?DocumentID=3HAC065038-001&LanguageCode=en&DocumentPartId=&Action=Launch  
 Today video : [https://youtu.be/v-WTg0BGxcQ](https://youtu.be/31qWdAxSHZU)
+
+- 2025/07/21
+Try to add the mechanisam gripper that can adjust jog.
+Today video :
