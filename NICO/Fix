@@ -1,0 +1,114 @@
+ff = 1;%n4,n15
+
+path_ff1 = "stereo_good_wire_1/";
+path_ff2 = "stereo_good_wire_2/";
+%/MATLAB Drive/stereo_good_wire_1/framen1.png
+frame_name = "framen";
+file_type = ".png";
+
+load('spara.mat', 'stereoParams');
+
+CameraParameters = stereoParams;
+I1 = imread(path_ff1+frame_name+num2str(ff)+file_type);
+I2 = imread(path_ff2+frame_name+num2str(ff)+file_type);
+
+I1 = undistortImage(I1,CameraParameters.CameraParameters1);
+I2 = undistortImage(I2,CameraParameters.CameraParameters2);
+I1un = I1;
+I2un = I2;
+
+im1g = im2gray(I1);
+%im1g = medfilt2(im1g);
+im2g = im2gray(I2);
+%im2g = medfilt2(im2g);
+
+numtiles = [8 8]*2;
+
+im1gia = imadjust(im1g);
+im1g = adapthisteq(im1g,"NumTiles",numtiles,"Distribution","uniform","ClipLimit",0.045);
+im2g = adapthisteq(im2g,"NumTiles",numtiles,"Distribution","uniform","ClipLimit",0.045);
+%im1g = imgaussfilt(im1g,0.9);
+%im2g = imgaussfilt(im2g,0.9);
+im1g = imbilatfilt(im1g);
+im2g = imbilatfilt(im2g);
+
+
+BWim1g = edge(im1g,'canny',[0.09 0.15]);
+BWim2g = edge(im2g,'canny',[0.09 0.15]);
+
+im1gp = detectORBFeatures(im1g,"NumLevels",14,"ScaleFactor",1.2);
+im2gp = detectORBFeatures(im2g,"NumLevels",14,"ScaleFactor",1.2);
+
+im1gps = detectSIFTFeatures(im1g);
+im2gps = detectSIFTFeatures(im2g);
+[im1gpm,im1gpmcc] = detectMSERFeatures(im1g,"ThresholdDelta",2);
+[im2gpm,im2gpmcc] = detectMSERFeatures(im2g,"ThresholdDelta",2);
+
+stats1 = regionprops('table',im1gpmcc,"all");
+stats2 = regionprops('table',im2gpmcc,"all");
+
+
+[im1orbfb,im1vldpb] = extractFeatures(im1g,im1gp);
+[im2orbfb,im2vldpb] = extractFeatures(im2g,im2gp);
+indexPairs = matchFeatures(im1orbfb,im2orbfb,"Unique",true);
+matchedPoints1b = im1vldpb(indexPairs(:,1),:);
+matchedPoints2b = im2vldpb(indexPairs(:,2),:);
+
+[im1s,im1vs] = extractFeatures(im1g,im1gps);
+[im2s,im2vs] = extractFeatures(im2g,im2gps);
+indexPairss = matchFeatures(im1s,im2s,"Unique",true);
+matchedPoints1bs = im1vs(indexPairss(:,1),:);
+matchedPoints2bs = im2vs(indexPairss(:,2),:);
+
+
+inlierPoints1 = matchedPoints1b; 
+inlierPoints2 = matchedPoints2b; 
+
+figure; 
+showMatchedFeatures(I1,I2,inlierPoints1,inlierPoints2);
+
+
+figure; imshow(im1g); hold on;
+plot(im1gpm,'showPixelList',true,'showEllipses',false);
+
+figure; imshow(im2g); hold on;
+plot(im2gpm,'showPixelList',true,'showEllipses',false);
+
+
+[im1orbf,im1vldp] = extractFeatures(im1g,im1gp);
+[im2orbf,im2vldp] = extractFeatures(im2g,im2gp);
+
+indexPairs = matchFeatures(im1orbf,im2orbf,"Unique",true);
+
+matchedPoints1 = im1vldp(indexPairs(:,1),:);
+matchedPoints2 = im2vldp(indexPairs(:,2),:);
+%[E,inliers] = estimateEssentialMatrix(matchedPoints1,matchedPoints2,CameraParameters.CameraParameters1,CameraParameters.CameraParameters2);
+%inlierPoints1 = matchedPoints1(inliers);
+%inlierPoints2 = matchedPoints2(inliers);
+inlierPoints1 = matchedPoints1; 
+inlierPoints2 = matchedPoints2; 
+
+%%Visualize the corresponding points. You can see the effect of translation between the two images despite several erroneous matches.
+[point3dmm,reproj_err,vldpnt] = triangulate(inlierPoints1, inlierPoints2, CameraParameters);
+
+
+point3d = point3dmm./1000;
+figure;
+scatter3(point3d(:,1),point3d(:,2),point3d(:,3))
+distanceInMeters = vecnorm(point3d,2,2);
+nb_point = size(distanceInMeters);
+distanceAsString = compose('%0.2f m', distanceInMeters);
+for pnt = 1: nb_point(1)
+    I1 = insertObjectAnnotation(I1,'rectangle',[inlierPoints1.Location(pnt,:),10,10],[distanceAsString{pnt}+"..."+num2str(pnt)],'FontSize',9);
+    I2 = insertObjectAnnotation(I2,'rectangle',[inlierPoints2.Location(pnt,:),10,10],[distanceAsString{pnt}+"..."+num2str(pnt)],'FontSize',9);
+end
+
+sort_dis = sort(distanceInMeters);
+figure; 
+showMatchedFeatures(I1,I2,inlierPoints1,inlierPoints2);
+figure
+I1c=I1;
+for pnt = 1: im1gpmcc.NumObjects
+I1c = insertObjectAnnotation(I1c,'rectangle',[stats1.Centroid(pnt,1),stats1.Centroid(pnt,2),10,10],[num2str(pnt)],'FontSize',9);
+end
+imshow(I1c)
