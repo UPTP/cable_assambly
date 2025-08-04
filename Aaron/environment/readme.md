@@ -15,5 +15,5 @@ Rapid function : https://search.abb.com/library/Download.aspx?DocumentID=3HAC065
 Today video : [https://youtu.be/v-WTg0BGxcQ](https://youtu.be/31qWdAxSHZU)
 
 - 2025/07/21
-Try to add the mechanisam gripper that can adjust jog.
+Try to add the mechanisam gripper that can adjust jog.  
 Today video : https://youtu.be/nhlMTEtEx1E
