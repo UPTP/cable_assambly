@@ -16,4 +16,4 @@ Today video : [https://youtu.be/v-WTg0BGxcQ](https://youtu.be/31qWdAxSHZU)
 
 - 2025/07/21
 Try to add the mechanisam gripper that can adjust jog.
-Today video :
+Today video : https://youtu.be/nhlMTEtEx1E
