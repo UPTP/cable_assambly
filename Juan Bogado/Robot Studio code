@@ -1,1 +1,412 @@
+MODULE Module1
+    PERS tooldata tip_tcp:=[TRUE,[[17.233946492,-0.207,179.250339223],[1,0,0,0]],[1,[0,0,1],[1,0,0,0],0,0,0]];
+    PERS tooldata Insertion_Tool:=[TRUE,[[3.387656926,-0.882,172.326587613],[1,0,0,0]],[1,[0,0,1],[1,0,0,0],0,0,0]];
+    CONST robtarget HOME:=[[-205.702795,15.687,9.478],[0,0.965925826,0,0.258819045],[-1,0,-1,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    CONST robtarget Target_2:=[[-133.69706568,15.687000005,-0.331755035],[0,1,0,-0.000000013],[-1,1,-2,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    CONST robtarget Target_3:=[[-133.69706568,15.687000005,58.055324637],[0,1,0,-0.000000013],[-1,1,-2,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    CONST robtarget Target_4:=[[0,0,37.929975236],[0,1,0,-0.000000013],[0,-2,1,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+    
+    VAR bool insertionOK := FALSE; 
+    VAR bool hasWire := FALSE;
+    VAR num i;
+    VAR num successCount := 0;
+    VAR num failCount := 0;
+    
+    ! Grid Parameters
+    CONST num Xpoints := 6;      ! number of grid points in X
+    CONST num Ypoints := 12;      ! number of grid points in Y
+    CONST num Spacing := 2;     ! mm spacing between points
+    CONST num SafeZ := 10;       ! safe height above plate
+    CONST num ProbeDepth := 0;   ! surface level (adjust later)   
+    VAR bool GridResult{Xpoints,Ypoints};  
+    
+    CONST num depth_Z := -5;
+    CONST num first_Z := 30;
 
+    !Multiple ports variables
+    CONST num MaxPorts := 10;
+    VAR robtarget CentroidTargets{MaxPorts};
+    VAR robtarget CentroidTargets_Above{MaxPorts};
+    VAR num totalPorts := 0;
+    
+    !Socket variables 
+    VAR socketdev sock;
+    VAR string sendStr;
+    VAR string recvStr;
+    
+    !SPIRAL Search VARIABLES 
+    VAR num spiralStep := 0.3;   ! slide distance (mm)
+    VAR num pressDepth := 1.5;   ! spring compression depth
+    VAR num maxLayer := 6;       ! Spiral Size
+    
+    VAR robtarget tgt;
+    VAR robtarget tgtAbove;
+    
+    PROC main()
+        
+        
+        SingArea\Off;
+        ConfL\Off;
+        SingArea\LockAxis4;
+        MoveL HOME,v400,fine,tip_tcp\WObj:=New_Workobject;
+        MoveL Target_2,v400,fine,tip_tcp\WObj:=New_Workobject;
+        MoveL Target_3,v400,fine,tip_tcp\WObj:=New_Workobject;
+        MoveL Target_4,v400,fine,tip_tcp\WObj:=New_Workobject;
+        
+        
+        ConnectToPython;
+        Griding;
+        ReceiveCentroid;
+        ProcessCentroids; 
+        Loop;
+        ! --- Return home path ---
+        MoveL Target_4,v400,fine,tip_tcp\WObj:=New_Workobject;
+        MoveL Target_3,v400,fine,tip_tcp\WObj:=New_Workobject;
+        MoveL Target_2,v400,fine,tip_tcp\WObj:=New_Workobject;
+        MoveL HOME,v400,fine,tip_tcp\WObj:=New_Workobject;
+        
+    ENDPROC
+    
+       PROC Loop()
+           FOR i FROM 1 TO totalPorts DO
+            TPWrite "----------------------";
+            TPWrite "Processing port:";
+            TPWrite NumToStr(i,0);
+            
+            ! Load target
+            tgt := CentroidTargets{i};
+            tgtAbove := CentroidTargets_Above{i};
+            
+            !Try Insertion
+             Wire_Insertion tgt, tgtAbove;
+
+            !  Record result
+            IF insertionOK THEN
+                successCount := successCount + 1;
+                hasWire := FALSE;     ! wire was used successfully
+                TPWrite "Port completed successfully";
+            ELSE
+                failCount := failCount + 1;
+                TPWrite "Port insertion failed";
+            ENDIF
+        ENDFOR
+        
+        TPWrite "======================";
+        TPWrite "ALL PORTS PROCESSED";
+        TPWrite "Success:";
+        TPWrite NumToStr(successCount,0);
+        TPWrite "Failed:";
+        TPWrite NumToStr(failCount,0);
+
+        
+    ENDPROC
+    
+    PROC ConnectToPython()
+
+        SocketCreate sock;
+        !for softwaree simulation 
+        SocketConnect sock,"127.0.0.1",4000;
+        
+        !for hardware simulation (remember to always change in pythoon too)
+        !SocketConnect sock,"192.168.125.3",4000;
+    
+        TPWrite "Connected to Python";
+
+    ENDPROC
+    
+     PROC Griding()
+
+        VAR num i;
+        VAR num j;
+        VAR num jStart;
+        VAR num jEnd;
+        VAR num jStep;
+        VAR robtarget TargetPos;
+        
+        !LET THE CAMERA KNOW MAPPING STARTS 
+        SetDO Mapping,1;
+    
+        FOR i FROM 1 TO Xpoints DO
+    
+            ! --- Decide serpentine direction ---
+            IF i MOD 2 = 1 THEN
+                jStart := 1;
+                jEnd   := Ypoints;
+                jStep  := 1;
+            ELSE
+                jStart := Ypoints;
+                jEnd   := 1;
+                jStep  := -1;
+            ENDIF
+    
+            FOR j FROM jStart TO jEnd STEP jStep DO
+    
+                ! --- Base reference ---
+                TargetPos := Target_4;
+    
+                ! --- Apply grid offsets ---
+                TargetPos.trans.x := TargetPos.trans.x + (i-1)*Spacing;
+                TargetPos.trans.y := TargetPos.trans.y + (j-1)*Spacing;
+    
+                ! --- Move above probing point ---
+                TargetPos.trans.z := SafeZ;
+                MoveL TargetPos, v200, z10, tip_tcp\WObj:=New_Workobject;
+    
+                ! --- Descend to probing depth ---
+                TargetPos.trans.z := ProbeDepth;
+                MoveL TargetPos, v50, fine, tip_tcp\WObj:=New_Workobject;
+    
+                ! Optional settling time for compliance
+                WaitTime 0.5;
+    
+                ! --- Read contact sensor ---
+                IF diContact = 1 THEN
+                !IF ABB_Scalable_IO_0_DI10 = 1 THEN
+                    GridResult{i,j} := TRUE;
+                    TPWrite "Contact detected";
+                ELSE
+                    GridResult{i,j} := FALSE;
+                    TPWrite "No contact";
+                ENDIF
+    
+                ! --- Send result to Python ---
+                sendStr := NumToStr(i,0) + "," + NumToStr(j,0) + ",";
+                
+    
+                IF GridResult{i,j} THEN
+                    sendStr := sendStr + "1";
+                ELSE
+                    sendStr := sendStr + "0";
+                ENDIF
+    
+                SocketSend sock \Str := sendStr;
+    
+                ! --- Retract to safe height ---
+                TargetPos.trans.z := SafeZ;
+                MoveL TargetPos, v100, z10, tip_tcp\WObj:=New_Workobject;
+    
+            ENDFOR
+    
+        ENDFOR
+    
+        ! --- Signal end of scan ---
+        SocketSend sock \Str := "END";
+        
+         !LET THE CAMERA KNOW MAPPING FINISH
+         SetDO Mapping,0;
+    ENDPROC
+    
+    PROC ProcessCentroids()
+
+        VAR string part;
+        VAR string xStr;
+        VAR string yStr;
+        VAR num cx;
+        VAR num cy;
+        VAR num pos := 1;
+        VAR num sep;
+        VAR num i;
+        VAR bool ok;
+    
+        ! --- Get number of ports ---
+        VAR num eq ;
+        VAR num semi;
+        VAR string nStr ;
+        
+        
+        !Getting parameters 
+        eq := StrFind(recvStr,1,"=");
+        semi := StrFind(recvStr,1,";");
+        nStr := StrPart(recvStr,eq+1,semi-eq-1);
+        ok := StrToVal(nStr,totalPorts);
+        
+    
+        TPWrite "Total ports detected:";
+        TPWrite nStr;
+    
+        pos := semi + 1;
+    
+        FOR i FROM 1 TO totalPorts DO
+    
+            sep := StrFind(recvStr,pos,"|");
+            IF sep = 0 THEN
+                part := StrPart(recvStr,pos,StrLen(recvStr)-pos+1);
+            ELSE
+                part := StrPart(recvStr,pos,sep-pos);
+            ENDIF
+    
+            ! extract X
+            eq := StrFind(part,1,"=");
+            semi := StrFind(part,1,";");
+            xStr := StrPart(part,eq+1,semi-eq-1);
+    
+            ! extract Y
+            eq := StrFind(part,semi,"=");
+            yStr := StrPart(part,eq+1,StrLen(part)-eq);
+    
+            ok := StrToVal(xStr,cx);
+            ok := StrToVal(yStr,cy);
+    
+            CentroidTargets{i} := Target_4;
+            CentroidTargets{i}.trans.x := cx;
+            CentroidTargets{i}.trans.y := cy;
+            CentroidTargets{i}.trans.z := depth_Z;
+    
+            CentroidTargets_Above{i} := CentroidTargets{i};
+            CentroidTargets_Above{i}.trans.z := first_Z;
+    
+            IF sep = 0 THEN
+                EXIT;
+            ENDIF
+    
+            pos := sep + 1;
+    
+        ENDFOR
+    
+    ENDPROC
+    
+    PROC ReceiveCentroid()
+
+        SocketReceive sock\Str := recvStr;
+    
+        TPWrite "Centroid received:";
+        TPWrite recvStr;
+        
+        SocketClose sock;
+
+    ENDPROC
+    
+    PROC Wire_Insertion(robtarget tgt, robtarget tgtAbove)
+
+        insertionOK := FALSE;
+
+        SetDO Insertion,1;
+        MoveL tgtAbove,v100,fine,Insertion_Tool\WObj:=New_Workobject;
+        WaitTime 1;
+        MoveL tgt,v10,fine,Insertion_Tool\WObj:=New_Workobject;
+
+        WaitTime 0.3;
+
+        IF diContact = 1 THEN
+            TPWrite "Insertion failed — starting spiral search";
+            ! Retract safely upward
+            MoveL tgtAbove,v80,fine,Insertion_Tool\WObj:=New_Workobject;
+            ! do spiral 
+            Spiral_Contact_Search(tgt);
+            
+        ELSE
+            insertionOK := TRUE;
+            TPWrite "Insertion OK";
+            
+             ! Small dwell to ensure seating
+            WaitTime 0.5;
+            ! Retract normally
+            MoveL tgtAbove,v80,fine,Insertion_Tool\WObj:=New_Workobject;
+            
+        ENDIF
+        
+         SetDO Spiral,0;
+         SetDO Insertion,0;
+
+    ENDPROC
+    
+    PROC Spiral_Contact_Search(robtarget centerPoint)
+
+        VAR num layer := 1;
+        VAR num sideMoves;
+        VAR num i;
+        VAR robtarget SlideTarget;
+        VAR robtarget basePoint;
+        
+
+        TPWrite "Contact spiral search started";
+        SetDO Insertion,0;
+        SetDO Spiral,1;
+
+        basePoint := centerPoint;
+        basePoint.trans.z := 0;
+
+        MoveL Offs(basePoint,0,0,-pressDepth),v5,fine,Insertion_Tool\WObj:=New_Workobject;
+        WaitTime 0.2;
+
+        WHILE layer <= maxLayer DO
+
+            sideMoves := layer * 2;
+
+            FOR i FROM 1 TO sideMoves DO
+                SlideTarget := Offs(basePoint, spiralStep*layer, 0, -pressDepth);
+                MoveL SlideTarget,v5,z1,Insertion_Tool\WObj:=New_Workobject;
+                IF diContact = 0 THEN
+                    insertionOK := TRUE;
+                    Slidetarget.trans.z :=depth_Z;
+                    MoveL SlideTarget,v5,z1,Insertion_Tool\WObj:=New_Workobject;
+                    SlideTarget.trans.z :=SafeZ;
+                    MoveL SlideTarget,v60,z1,Insertion_Tool\WObj:=New_Workobject;
+                    
+                    TPWrite "Insertion success";
+                    RETURN;
+                ENDIF
+            ENDFOR
+
+            FOR i FROM 1 TO sideMoves DO
+                SlideTarget := Offs(basePoint, 0, spiralStep*layer, -pressDepth);
+                MoveL SlideTarget,v5,z1,Insertion_Tool\WObj:=New_Workobject;
+                IF diContact = 0 THEN
+                    insertionOK := TRUE;
+                    SlideTarget.trans.z :=depth_Z;
+                    MoveL SlideTarget, v5, z1, Insertion_Tool\WObj:=New_Workobject;
+                    SlideTarget.trans.z :=SafeZ;
+                    MoveL SlideTarget, v60, z1, Insertion_Tool\WObj:=New_Workobject;
+                    TPWrite "Insertion success";
+                    RETURN;
+                ENDIF
+            ENDFOR
+
+            FOR i FROM 1 TO sideMoves DO
+                SlideTarget := Offs(basePoint, -spiralStep*layer, 0, -pressDepth);
+                MoveL SlideTarget, v5, z1, Insertion_Tool\WObj:=New_Workobject;
+                IF diContact = 0 THEN
+                    insertionOK := TRUE;
+                    SlideTarget.trans.z :=depth_Z;
+                    MoveL SlideTarget, v5, z1, Insertion_Tool\WObj:=New_Workobject;
+                    SlideTarget.trans.z :=SafeZ;
+                    MoveL SlideTarget,v60,z1,Insertion_Tool\WObj:=New_Workobject;
+                    TPWrite "Insertion success";
+                    RETURN;
+                ENDIF
+            ENDFOR
+
+            FOR i FROM 1 TO sideMoves DO
+                SlideTarget := Offs(basePoint, 0, -spiralStep*layer, -pressDepth);
+                MoveL SlideTarget,v5,z1,Insertion_Tool\WObj:=New_Workobject;
+                IF diContact = 0 THEN
+                    insertionOK := TRUE;
+                    SlideTarget.trans.z :=depth_Z;
+                    MoveL SlideTarget,v5,z1,Insertion_Tool\WObj:=New_Workobject;
+                    SlideTarget.trans.z :=SafeZ;
+                    MoveL SlideTarget,v60,z1,Insertion_Tool\WObj:=New_Workobject;
+                    TPWrite "Insertion success";
+                    RETURN;
+                ENDIF
+            ENDFOR
+
+            layer := layer + 1;
+
+        ENDWHILE
+
+        TPWrite "Spiral search failed";
+        SetDO Spiral,0;
+        MoveL Offs(centerPoint,0,0,SafeZ),v60,z1,Insertion_Tool\WObj:=New_Workobject;
+
+    ENDPROC
+    
+    PROC Path_1()
+        MoveL HOME,v400,fine,tip_tcp\WObj:=New_Workobject;
+        MoveL Target_2,v400,fine,tip_tcp\WObj:=New_Workobject;
+        MoveL Target_3,v400,fine,tip_tcp\WObj:=New_Workobject;
+        MoveL Target_4,v400,fine,tip_tcp\WObj:=New_Workobject;
+    ENDPROC
+    
+   
+    
+ENDMODULE
